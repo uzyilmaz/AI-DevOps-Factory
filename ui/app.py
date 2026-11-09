@@ -1,9 +1,5 @@
-from io import BytesIO
-from pathlib import Path, PurePosixPath
-import shutil
+from pathlib import Path
 import sys
-import tempfile
-from zipfile import ZIP_DEFLATED, ZipFile
 
 import streamlit as st
 
@@ -74,13 +70,7 @@ def initialize_session_state():
         "roadmap": None,
         "score": None,
         "maturity": None,
-        "analyzed_project_path": None,
-        "analyzed_project_source": None,
-        "previous_project_path": None,
-        "previous_project_source": None,
-        "uploaded_project_name": None,
-        "generated_assets_zip": None,
-        "generated_assets_zip_name": None
+        "analyzed_project_path": None
     }
 
     for key, value in default_values.items():
@@ -90,12 +80,6 @@ def initialize_session_state():
 
 def reset_analysis():
 
-    cleanup_uploaded_project(
-        st.session_state.get("analyzed_project_path")
-        if st.session_state.get("analyzed_project_source") == "upload"
-        else None
-    )
-
     st.session_state.analysis_completed = False
     st.session_state.specification = None
     st.session_state.gap_report = None
@@ -104,29 +88,6 @@ def reset_analysis():
     st.session_state.score = None
     st.session_state.maturity = None
     st.session_state.analyzed_project_path = None
-    st.session_state.analyzed_project_source = None
-    st.session_state.previous_project_path = None
-    st.session_state.previous_project_source = None
-    st.session_state.uploaded_project_name = None
-    st.session_state.generated_assets_zip = None
-    st.session_state.generated_assets_zip_name = None
-    st.session_state.pop("project_folder_upload", None)
-
-
-def cleanup_uploaded_project(project_path):
-
-    if not project_path:
-        return
-
-    path = Path(project_path).resolve()
-    temporary_directory = Path(tempfile.gettempdir()).resolve()
-
-    if (
-        path.parent == temporary_directory
-        and path.name.startswith("ai-devops-upload-")
-        and path.is_dir()
-    ):
-        shutil.rmtree(path)
 
 
 def validate_project_path(project_path: str):
@@ -143,109 +104,6 @@ def validate_project_path(project_path: str):
         return False, "Le chemin doit correspondre à un dossier."
 
     return True, ""
-
-
-def create_uploaded_project(uploaded_files):
-
-    if not uploaded_files:
-        raise ValueError("Veuillez sélectionner un dossier à importer.")
-
-    relative_paths = []
-
-    for uploaded_file in uploaded_files:
-        raw_path = uploaded_file.name.replace("\\", "/")
-        relative_path = PurePosixPath(raw_path)
-
-        if (
-            relative_path.is_absolute()
-            or any(part in {"", ".", ".."} for part in raw_path.split("/"))
-            or (relative_path.parts and relative_path.parts[0].endswith(":"))
-        ):
-            raise ValueError(
-                f"Chemin de fichier invalide dans le dossier importé: "
-                f"{uploaded_file.name}"
-            )
-
-        relative_paths.append(relative_path)
-
-    common_root = relative_paths[0].parts[0] if relative_paths else ""
-    strip_common_root = (
-        all(len(path.parts) > 1 for path in relative_paths)
-        and all(path.parts[0] == common_root for path in relative_paths)
-    )
-    project_name = common_root if strip_common_root else "uploaded-project"
-    workspace = Path(tempfile.mkdtemp(prefix="ai-devops-upload-"))
-
-    try:
-        for uploaded_file, relative_path in zip(
-            uploaded_files,
-            relative_paths
-        ):
-            project_path = (
-                PurePosixPath(*relative_path.parts[1:])
-                if strip_common_root
-                else relative_path
-            )
-            target_path = workspace.joinpath(*project_path.parts)
-            resolved_target = target_path.resolve()
-
-            if not resolved_target.is_relative_to(workspace.resolve()):
-                raise ValueError(
-                    f"Chemin de fichier invalide dans le dossier importé: "
-                    f"{uploaded_file.name}"
-                )
-
-            if target_path.exists():
-                raise ValueError(
-                    f"Le dossier importé contient un chemin en double: "
-                    f"{uploaded_file.name}"
-                )
-
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.write_bytes(uploaded_file.getvalue())
-
-    except Exception:
-        cleanup_uploaded_project(workspace)
-        raise
-
-    return workspace, project_name
-
-
-def list_project_files(project_path):
-
-    root = Path(project_path).resolve()
-
-    return {
-        path.relative_to(root)
-        for path in root.rglob("*")
-        if path.is_file() and not path.is_symlink()
-    }
-
-
-def create_generated_assets_archive(project_path, previous_files):
-
-    root = Path(project_path).resolve()
-    generated_files = sorted(
-        path
-        for path in list_project_files(root) - previous_files
-        if (root / path).resolve().is_relative_to(root)
-    )
-
-    if not generated_files:
-        raise RuntimeError(
-            "Aucun nouveau fichier DevOps n'a été créé."
-        )
-
-    archive = BytesIO()
-
-    with ZipFile(archive, "w", ZIP_DEFLATED) as zip_file:
-        for relative_path in generated_files:
-            zip_file.write(
-                root / relative_path,
-                arcname=relative_path.as_posix()
-            )
-
-    return archive.getvalue()
 
 
 def display_asset_status(
@@ -351,39 +209,16 @@ with st.sidebar:
 
 st.subheader("1. Select an existing project")
 
-project_source = st.radio(
-    "Project location",
-    ["Upload a folder from this computer", "Use a server path"],
-    horizontal=True
+project_path = st.text_input(
+    "Project directory",
+    placeholder=(
+        r"C:\Users\YourName\Projects\MyProject"
+    ),
+    help=(
+        "Indiquez le chemin absolu du projet "
+        "que vous souhaitez analyser."
+    )
 )
-
-uploaded_files = None
-
-if project_source == "Upload a folder from this computer":
-    uploaded_files = st.file_uploader(
-        "Project folder",
-        accept_multiple_files="directory",
-        key="project_folder_upload",
-        help=(
-            "The selected files will be uploaded to the server for analysis. "
-            "The server cannot access files that remain only on your computer."
-        )
-    )
-    st.caption(
-        "The folder is temporarily copied to the server. "
-        "Generated assets can be downloaded as a ZIP."
-    )
-else:
-    project_path = st.text_input(
-        "Project directory on the server",
-        placeholder=(
-            r"C:\Users\YourName\Projects\MyProject"
-        ),
-        help=(
-            "Use this option only when the project directory is already "
-            "accessible on the server."
-        )
-    )
 
 
 analyze_button = st.button(
@@ -399,36 +234,19 @@ analyze_button = st.button(
 
 if analyze_button:
 
-    uploaded_project_path = None
+    is_valid, error_message = validate_project_path(
+        project_path
+    )
 
-    if project_source == "Upload a folder from this computer":
-        try:
-            uploaded_project_path, uploaded_project_name = (
-                create_uploaded_project(uploaded_files)
-            )
-            normalized_project_path = str(uploaded_project_path)
-            source_kind = "upload"
-
-        except Exception as error:
-            st.error(str(error))
-            normalized_project_path = None
+    if not is_valid:
+        st.error(error_message)
 
     else:
-        is_valid, error_message = validate_project_path(
-            project_path
+
+        normalized_project_path = str(
+            Path(project_path).resolve()
         )
 
-        if not is_valid:
-            st.error(error_message)
-            normalized_project_path = None
-        else:
-            normalized_project_path = str(
-                Path(project_path).resolve()
-            )
-            uploaded_project_name = None
-            source_kind = "server"
-
-    if normalized_project_path:
         try:
 
             with st.spinner(
@@ -495,25 +313,7 @@ if analyze_button:
                 normalized_project_path
             )
 
-            previous_project_path = st.session_state.get(
-                "previous_project_path"
-            )
-            previous_source = st.session_state.get(
-                "previous_project_source"
-            )
-            if (
-                previous_source == "upload"
-                and previous_project_path != normalized_project_path
-            ):
-                cleanup_uploaded_project(previous_project_path)
-
-            st.session_state.analyzed_project_source = source_kind
-            st.session_state.uploaded_project_name = uploaded_project_name
-            st.session_state.generated_assets_zip = None
-            st.session_state.generated_assets_zip_name = None
             st.session_state.analysis_completed = True
-            st.session_state.previous_project_path = normalized_project_path
-            st.session_state.previous_project_source = source_kind
 
             st.success(
                 "Project analysis completed successfully."
@@ -522,8 +322,6 @@ if analyze_button:
         except Exception as error:
 
             st.session_state.analysis_completed = False
-            if uploaded_project_path:
-                cleanup_uploaded_project(uploaded_project_path)
 
             st.error(
                 "The project analysis failed."
@@ -690,15 +488,9 @@ if st.session_state.analysis_completed:
             f"Delivery method: `{delivery_label}`"
         )
 
-        if st.session_state.analyzed_project_source == "upload":
-            st.write(
-                f"Project source: Uploaded folder "
-                f"(`{st.session_state.uploaded_project_name}`)"
-            )
-        else:
-            st.write(
-                f"Project path: `{analyzed_project_path}`"
-            )
+        st.write(
+            f"Project path: `{analyzed_project_path}`"
+        )
 
     st.divider()
 
@@ -882,17 +674,11 @@ if st.session_state.analysis_completed:
 
     st.subheader("7. Generate missing DevOps assets")
 
-    if st.session_state.analyzed_project_source == "upload":
-        st.warning(
-            "The generated files will be added to the temporary server copy. "
-            "Download the generated assets ZIP to retrieve them."
-        )
-    else:
-        st.warning(
-            "The generated files will be written directly "
-            "into the analyzed project directory. "
-            "Existing detected files should not be overwritten."
-        )
+    st.warning(
+        "The generated files will be written directly "
+        "into the analyzed project directory. "
+        "Existing detected files should not be overwritten."
+    )
 
     generation_enabled = any(
         gap_report["gaps"].values()
@@ -919,10 +705,6 @@ if st.session_state.analysis_completed:
                 "Generating missing DevOps assets..."
             ):
 
-                previous_files = list_project_files(
-                    analyzed_project_path
-                )
-
                 generated_project_path = (
                     execute_project_generation(
                         specification,
@@ -931,39 +713,15 @@ if st.session_state.analysis_completed:
                     )
                 )
 
-                generated_assets_zip = (
-                    create_generated_assets_archive(
-                        generated_project_path,
-                        previous_files
-                    )
-                )
-
-            project_archive_name = (
-                st.session_state.uploaded_project_name
-                if st.session_state.analyzed_project_source == "upload"
-                else specification.project_name
-            )
-            safe_archive_name = "".join(
-                character
-                if character.isalnum() or character in "-_."
-                else "_"
-                for character in project_archive_name
-            ).strip("._")
-            st.session_state.generated_assets_zip = generated_assets_zip
-            st.session_state.generated_assets_zip_name = (
-                f"{safe_archive_name or 'project'}-generated-assets.zip"
-            )
-
             st.success(
                 "Missing DevOps assets generated "
                 "successfully."
             )
 
-            if st.session_state.analyzed_project_source != "upload":
-                st.write(
-                    f"Output path: "
-                    f"`{generated_project_path}`"
-                )
+            st.write(
+                f"Output path: "
+                f"`{generated_project_path}`"
+            )
 
             refreshed_gap_report = (
                 get_devops_gap_report(
@@ -1023,11 +781,3 @@ if st.session_state.analysis_completed:
             )
 
             st.exception(error)
-
-    if st.session_state.generated_assets_zip:
-        st.download_button(
-            label="Download generated DevOps assets",
-            data=st.session_state.generated_assets_zip,
-            file_name=st.session_state.generated_assets_zip_name,
-            mime="application/zip"
-        )
