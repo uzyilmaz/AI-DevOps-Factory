@@ -34,7 +34,7 @@ Plateforme **multi-agents** (Python) qui analyse un dépôt existant, évalue sa
 
 ## Fonctionnalités
 
-- **Analyse d’un projet existant** (chemin local) : détection du langage, framework, base de données, outil de build.
+- **Analyse d’un projet existant** : import d’un dossier depuis le navigateur ou chemin local accessible au serveur; détection du langage, framework, base de données et outil de build.
 - **Détection des assets DevOps** présents :
   - `README.md`, `.gitignore`
   - `Dockerfile`, `docker-compose.yml` / `compose.yml`
@@ -56,7 +56,7 @@ Plateforme **multi-agents** (Python) qui analyse un dépôt existant, évalue sa
 ## Architecture (vue d’ensemble)
 
 1. **UI Streamlit** (`ui/app.py`) :
-   - récupère le chemin du projet
+   - importe le dossier depuis le navigateur ou récupère un chemin accessible au serveur
    - permet de choisir la plateforme CI/CD et la méthode de livraison
    - lance l’analyse, affiche score/rapport/roadmap
    - déclenche la génération des assets manquants
@@ -164,7 +164,9 @@ python orchestrator/main.py
    - choisissez la **méthode de livraison** :
      - **Source Code** : pas d’exigence Docker
      - **Container Image** : Dockerfile + docker-compose deviennent requis
-3. Saisissez le **chemin absolu** du projet à analyser.
+3. Choisissez la source du projet :
+   - Pour un déploiement sur Internet, choisissez **Upload a folder from this computer** et sélectionnez le dossier sur votre PC.
+   - **Use a server path** ne fonctionne que pour les dossiers présents sur la machine qui héberge Streamlit.
 4. Cliquez **Analyze project**.
 5. Consultez :
    - plateforme détectée (si existante)
@@ -174,6 +176,9 @@ python orchestrator/main.py
    - roadmap
    - rapport complet
 6. Cliquez **Generate missing assets** pour écrire les fichiers manquants **directement dans le dépôt analysé**.
+   - Si le projet a été importé depuis le navigateur, les changements sont écrits dans une copie temporaire sur le serveur. Téléchargez le ZIP proposé pour récupérer les nouveaux fichiers DevOps; le reste du projet n’est pas inclus dans cette archive.
+
+> Les fichiers du dossier importé sont transmis au serveur pour l’analyse et y sont conservés temporairement pendant la session. N’importez que des projets que vous êtes autorisé à transférer.
 
 ---
 
@@ -342,4 +347,3 @@ Assurez-vous que le dépôt analysé autorise la création de dossiers.
   - commandes de build/test
   - versions runtime
   - secrets/variables CI
-
