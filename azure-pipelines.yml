@@ -24,3 +24,25 @@ steps:
 
   - script: docker build --tag ai-devops-factory:$(Build.BuildId) .
     displayName: "Build Docker image"
+
+  - script: |
+      set -eu
+      image="ai-devops-factory:$(Build.BuildId)"
+      container_id="$(docker run --detach --publish 8501:8501 "$image")"
+      cleanup() {
+        docker logs "$container_id" || true
+        docker stop "$container_id" >/dev/null 2>&1 || true
+      }
+      trap cleanup EXIT
+
+      attempt=0
+      until curl --fail --silent --output /dev/null http://127.0.0.1:8501/_stcore/health; do
+        attempt=$((attempt + 1))
+        if [ "$attempt" -ge 30 ]; then
+          echo "Streamlit did not become healthy in 60 seconds."
+          exit 1
+        fi
+        sleep 2
+      done
+      echo "Streamlit health check passed."
+    displayName: "Run container health check"
