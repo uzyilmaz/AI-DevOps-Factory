@@ -140,6 +140,48 @@ streamlit run ui/app.py
 
 Ensuite, ouvrez l’URL affichée par Streamlit.
 
+### Option de déploiement avec Docker
+
+Docker est une option pour lancer l’application localement; aucune publication sur Docker Hub n’est nécessaire. Depuis la racine du dépôt, construisez l’image :
+
+```bash
+docker build -t ai-devops-factory .
+```
+
+Créez un fichier `ai-devops.env` contenant la configuration OpenRouter :
+
+```env
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=votre-cle
+OPENROUTER_MODEL=openai/gpt-4o-mini
+```
+
+Ne publiez jamais ce fichier et ne placez pas la clé dans l’image. Lancez ensuite le conteneur en montant le dossier local que vous souhaitez analyser :
+
+**Linux / macOS**
+
+```bash
+docker run --rm -p 8501:8501 \
+  --env-file ./ai-devops.env \
+  -v "/chemin/absolu/vers/mon-projet:/workspace" \
+  ai-devops-factory
+```
+
+**Windows PowerShell**
+
+```powershell
+docker run --rm -p 8501:8501 `
+  --env-file .\ai-devops.env `
+  -v "C:\Users\VotreNom\Projects\MonProjet:/workspace" `
+  ai-devops-factory
+```
+
+Ouvrez `http://localhost:8501` et saisissez `/workspace` comme chemin du projet. Les analyses et fichiers DevOps générés accéderont au dossier monté sur le PC et les changements générés y seront conservés. Le chemin saisi dans l’application est celui du conteneur (`/workspace`), pas le chemin Windows ou macOS/Linux.
+
+Le provider par défaut est LM Studio et son adresse est `localhost:1234`, qui désigne le conteneur lorsqu’il tourne sous Docker. Pour l’utiliser, il faut adapter l’adresse du provider afin qu’il joigne LM Studio sur l’hôte; sinon, configurez un provider distant comme OpenRouter avec le fichier d’environnement ci-dessus.
+
+Avec OpenRouter, les extraits de fichiers lus par l’analyse sont envoyés au fournisseur pour obtenir l’analyse LLM. Vérifiez sa politique de confidentialité et n’utilisez pas ce mode avec du code confidentiel si vous n’y êtes pas autorisé.
+
 ### Mode script (orchestrator)
 
 Le fichier `orchestrator/main.py` est un exemple de pipeline “script” (non interactif) qui :
@@ -342,4 +384,3 @@ Assurez-vous que le dépôt analysé autorise la création de dossiers.
   - commandes de build/test
   - versions runtime
   - secrets/variables CI
-
