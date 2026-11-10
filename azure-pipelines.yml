@@ -1,0 +1,26 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: "3.12"
+    displayName: "Use Python 3.12"
+
+  - script: python -m compileall -q agents models orchestrator services ui
+    displayName: "Check Python syntax"
+
+  - script: docker build --tag ai-devops-factory:$(Build.BuildId) .
+    displayName: "Build Docker image"
