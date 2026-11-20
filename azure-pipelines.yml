@@ -28,6 +28,9 @@ stages:
           - script: python -m compileall -q agents backend models orchestrator services ui
             displayName: "Compile Python files"
 
+          - script: python -m pip install --disable-pip-version-check -r requirements.txt
+            displayName: "Install Python dependencies"
+
           - script: python -m unittest discover -s tests
             displayName: "Run backend API tests"
 
