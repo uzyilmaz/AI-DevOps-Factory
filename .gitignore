@@ -50,3 +50,5 @@ secrets/
 
 # Local tests
 test*
+!tests/
+!tests/*.py

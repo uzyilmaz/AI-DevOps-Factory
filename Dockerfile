@@ -5,7 +5,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY models ./models
+COPY services/devops_options.py ./services/devops_options.py
+COPY ui ./ui
 
 EXPOSE 8501
 

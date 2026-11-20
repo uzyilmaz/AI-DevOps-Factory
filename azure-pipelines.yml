@@ -25,39 +25,39 @@ stages:
               versionSpec: "3.12"
             displayName: "Use Python 3.12"
 
-          - script: python -m compileall -q agents models orchestrator services ui
+          - script: python -m compileall -q agents backend models orchestrator services ui
             displayName: "Compile Python files"
 
+          - script: python -m unittest discover -s tests
+            displayName: "Run backend API tests"
+
   - stage: BuildAndTest
-    displayName: "Build Docker image and health check"
+    displayName: "Build Docker images and health check"
     dependsOn: Validate
     jobs:
       - job: DockerBuildAndHealthCheck
-        displayName: "Build and test container"
+        displayName: "Build and test frontend and backend containers"
         steps:
           - checkout: self
 
-          - script: docker build --tag ai-devops-factory:$(Build.BuildId) .
-            displayName: "Build Docker image"
-
           - script: |
               set -eu
-              image="ai-devops-factory:$(Build.BuildId)"
-              container_id="$(docker run --detach --publish 8501:8501 "$image")"
+              docker compose up --build --detach
               cleanup() {
-                docker logs "$container_id" || true
-                docker stop "$container_id" >/dev/null 2>&1 || true
+                docker compose logs || true
+                docker compose down --volumes
               }
               trap cleanup EXIT
 
               attempt=0
-              until curl --fail --silent --output /dev/null http://127.0.0.1:8501/_stcore/health; do
+              until curl --fail --silent --output /dev/null http://127.0.0.1:8000/health \
+                && curl --fail --silent --output /dev/null http://127.0.0.1:8501/_stcore/health; do
                 attempt=$((attempt + 1))
                 if [ "$attempt" -ge 30 ]; then
-                  echo "Streamlit did not become healthy in 60 seconds."
+                  echo "Frontend and backend did not become healthy in 60 seconds."
                   exit 1
                 fi
                 sleep 2
               done
-              echo "Streamlit health check passed."
-            displayName: "Run container health check"
+              echo "Frontend and backend health checks passed."
+            displayName: "Build containers and run health checks"

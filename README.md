@@ -58,23 +58,26 @@ Plateforme **multi-agents** (Python) qui analyse un dépôt existant, évalue sa
 1. **UI Streamlit** (`ui/app.py`) :
    - récupère le chemin du projet
    - permet de choisir la plateforme CI/CD et la méthode de livraison
-   - lance l’analyse, affiche score/rapport/roadmap
-   - déclenche la génération des assets manquants
+   - appelle l’API backend pour l’analyse et la génération
 
-2. **Services** :
+2. **API FastAPI** (`backend/main.py`) :
+   - expose `POST /analyze` pour l’analyse et `POST /generate` pour générer les assets
+   - valide que le projet demandé se trouve dans le dossier partagé en déploiement Docker
+
+3. **Services** :
    - `services/project_spec_builder.py` : construit un `ProjectSpec` à partir du dépôt
    - `services/devops_gap_service.py` : produit un `gap_report` (assets + gaps)
    - `services/devops_assessment.py` : calcule score + maturité
    - `services/report_generator.py` : génère le rapport d’évaluation
    - `services/roadmap_generator.py` + `services/roadmap_report_generator.py`
 
-3. **Agents** :
+4. **Agents** :
    - `agents/repository_analyzer_agent/*` : analyse du dépôt (LLM + heuristiques) et détection assets
    - `agents/devops_agent/agent.py` : génération des fichiers DevOps (Dockerfile, pipeline, etc.)
    - `agents/lead_agent/agent.py` : orchestration de la génération
    - `agents/documentation_agent/agent.py` : génération de docs (dans `generated_projects/...`)
 
-4. **LLM** :
+5. **LLM** :
    - `services/llm_service.py` route vers un provider (LM Studio par défaut, OpenRouter optionnel)
 
 ---
@@ -134,51 +137,44 @@ Variables attendues :
 
 ### UI Streamlit
 
+Lancez l’API dans un premier terminal :
+
+```bash
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+Puis l’interface dans un second terminal :
+
 ```bash
 streamlit run ui/app.py
 ```
 
-Ensuite, ouvrez l’URL affichée par Streamlit.
+Ensuite, ouvrez l’URL affichée par Streamlit. Par défaut, l’interface contacte l’API sur `http://localhost:8000`; définissez `BACKEND_URL` pour utiliser une autre adresse.
 
-### Option de déploiement avec Docker
+### Déploiement avec deux images Docker
 
-Docker est une option pour lancer l’application localement; aucune publication sur Docker Hub n’est nécessaire. Depuis la racine du dépôt, construisez l’image :
-
-```bash
-docker build -t ai-devops-factory .
-```
-
-Créez un fichier `ai-devops.env` contenant la configuration OpenRouter :
-
-```env
-LLM_PROVIDER=openrouter
-OPENROUTER_API_KEY=votre-cle
-OPENROUTER_MODEL=openai/gpt-4o-mini
-```
-
-Ne publiez jamais ce fichier et ne placez pas la clé dans l’image. Lancez ensuite le conteneur en montant le dossier local que vous souhaitez analyser :
-
-**Linux / macOS**
+L’application est séparée en une API FastAPI (`ai-devops-factory-backend`) et une interface Streamlit (`ai-devops-factory-frontend`). Docker Compose construit et démarre les deux services depuis la racine du dépôt :
 
 ```bash
-docker run --rm -p 8501:8501 \
-  --env-file ./ai-devops.env \
-  -v "/chemin/absolu/vers/mon-projet:/workspace" \
-  ai-devops-factory
+docker compose up --build
 ```
 
-**Windows PowerShell**
+Les images peuvent aussi être construites séparément :
 
-```powershell
-docker run --rm -p 8501:8501 `
-  --env-file .\ai-devops.env `
-  -v "C:\Users\VotreNom\Projects\MonProjet:/workspace" `
-  ai-devops-factory
+```bash
+docker build -f Dockerfile.backend -t ai-devops-factory-backend .
+docker build -f Dockerfile.frontend -t ai-devops-factory-frontend .
 ```
 
-Ouvrez `http://localhost:8501` et saisissez `/workspace` comme chemin du projet. Les analyses et fichiers DevOps générés accéderont au dossier monté sur le PC et les changements générés y seront conservés. Le chemin saisi dans l’application est celui du conteneur (`/workspace`), pas le chemin Windows ou macOS/Linux.
+L’interface est disponible à `http://localhost:8501` et l’API à `http://localhost:8000`. Dans l’interface, indiquez `/workspace` comme chemin du dépôt à analyser. Par défaut, le dossier courant est monté dans `/workspace`. Pour utiliser un autre dépôt, définissez `PROJECTS_PATH` avant de lancer Compose :
 
-Le provider par défaut est LM Studio et son adresse est `localhost:1234`, qui désigne le conteneur lorsqu’il tourne sous Docker. Pour l’utiliser, il faut adapter l’adresse du provider afin qu’il joigne LM Studio sur l’hôte; sinon, configurez un provider distant comme OpenRouter avec le fichier d’environnement ci-dessus.
+```bash
+PROJECTS_PATH=/chemin/absolu/vers/mon-projet docker compose up --build
+```
+
+Pour OpenRouter, exportez `LLM_PROVIDER`, `OPENROUTER_API_KEY` et `OPENROUTER_MODEL` dans l’environnement avant de lancer Compose. Les clés ne sont pas intégrées aux images. Pour LM Studio installé sur l’hôte, Compose configure le backend pour joindre `host.docker.internal:1234`; modifiez `LMSTUDIO_BASE_URL` si nécessaire.
+
+Les fichiers DevOps générés sont écrits dans le dépôt monté. La documentation générée par l’agent est persistée dans le volume Docker `generated_projects`.
 
 Avec OpenRouter, les extraits de fichiers lus par l’analyse sont envoyés au fournisseur pour obtenir l’analyse LLM. Vérifiez sa politique de confidentialité et n’utilisez pas ce mode avec du code confidentiel si vous n’y êtes pas autorisé.
 

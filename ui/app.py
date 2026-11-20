@@ -1,7 +1,15 @@
 from pathlib import Path
+import os
 import sys
 
+import httpx
 import streamlit as st
+
+
+BACKEND_URL = os.getenv(
+    "BACKEND_URL",
+    "http://localhost:8000"
+).rstrip("/")
 
 
 # Permet à Streamlit de trouver les modules du projet
@@ -11,30 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-from agents.lead_agent.agent import (
-    execute_project_generation
-)
-
-from services.project_spec_builder import (
-    build_project_spec_from_repository
-)
-
-from services.devops_gap_service import (
-    get_devops_gap_report
-)
-
-from services.devops_assessment import (
-    compute_devops_score,
-    get_maturity_level
-)
-
-from services.report_generator import (
-    generate_devops_report
-)
-
-from services.roadmap_generator import (
-    generate_devops_roadmap
-)
+from models.project_spec import ProjectSpec
 
 from services.devops_options import (
     CI_CD_PLATFORM_OPTIONS,
@@ -43,6 +28,16 @@ from services.devops_options import (
     DELIVERY_METHOD_OPTIONS,
     DELIVERY_METHOD_DISPLAY_NAMES
 )
+
+
+def call_backend(endpoint: str, payload: dict) -> dict:
+    response = httpx.post(
+        f"{BACKEND_URL}{endpoint}",
+        json=payload,
+        timeout=httpx.Timeout(600.0, connect=10.0),
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 # ---------------------------------------------------------
@@ -253,43 +248,23 @@ if analyze_button:
                 "Repository analysis in progress..."
             ):
 
-                specification = (
-                    build_project_spec_from_repository(
-                        normalized_project_path
-                    )
+                analysis = call_backend(
+                    "/analyze",
+                    {
+                        "project_path": normalized_project_path,
+                        "target_ci_cd_platform": selected_platform,
+                        "delivery_method": selected_delivery_method,
+                    },
                 )
 
-                
-                gap_report = get_devops_gap_report(
-                    normalized_project_path,
-                    target_ci_cd_platform=(
-                        selected_platform
-                    ),
-                    delivery_method=(
-                        selected_delivery_method
-                    )
+                specification = ProjectSpec.model_validate(
+                    analysis["specification"]
                 )
-    
-                score = compute_devops_score(
-                    gap_report["assets"],
-                    selected_delivery_method,
-                    selected_platform
-                )
-
-                maturity = get_maturity_level(
-                    score
-                )
-
-                assessment_report = (
-                    generate_devops_report(
-                        specification,
-                        gap_report
-                    )
-                )
-
-                roadmap = generate_devops_roadmap(
-                    gap_report
-                )
+                gap_report = analysis["gap_report"]
+                score = analysis["score"]
+                maturity = analysis["maturity"]
+                assessment_report = analysis["assessment_report"]
+                roadmap = analysis["roadmap"]
 
             st.session_state.specification = (
                 specification
@@ -705,12 +680,13 @@ if st.session_state.analysis_completed:
                 "Generating missing DevOps assets..."
             ):
 
-                generated_project_path = (
-                    execute_project_generation(
-                        specification,
-                        gap_report,
-                        analyzed_project_path
-                    )
+                generation = call_backend(
+                    "/generate",
+                    {
+                        "project_path": analyzed_project_path,
+                        "specification": specification.model_dump(mode="json"),
+                        "gap_report": gap_report,
+                    },
                 )
 
             st.success(
@@ -720,54 +696,18 @@ if st.session_state.analysis_completed:
 
             st.write(
                 f"Output path: "
-                f"`{generated_project_path}`"
+                f"`{generation['generated_project_path']}`"
             )
 
-            refreshed_gap_report = (
-                get_devops_gap_report(
-                    analyzed_project_path,
-                    target_ci_cd_platform=(
-                        platform
-                    ),
-                    delivery_method=(
-                        delivery_method
-                    )
-                )
-            )
-
-            st.session_state.gap_report = (
-                refreshed_gap_report
-            )
-
-            refreshed_score = compute_devops_score(
-                refreshed_gap_report["assets"],
-                delivery_method,
-                platform
-            )
-
-            st.session_state.score = (
-                refreshed_score
-            )
-
-            st.session_state.maturity = (
-                get_maturity_level(
-                    refreshed_score
-                )
-            )
-
+            refreshed_assessment = generation["assessment"]
+            refreshed_gap_report = refreshed_assessment["gap_report"]
+            st.session_state.gap_report = refreshed_gap_report
+            st.session_state.score = refreshed_assessment["score"]
+            st.session_state.maturity = refreshed_assessment["maturity"]
             st.session_state.assessment_report = (
-                generate_devops_report(
-                    specification,
-                    refreshed_gap_report
-                )
+                refreshed_assessment["assessment_report"]
             )
-
-            st.session_state.roadmap = (
-                generate_devops_roadmap(
-                    refreshed_gap_report
-                )
-            )
-
+            st.session_state.roadmap = refreshed_assessment["roadmap"]
             st.info(
                 "The assessment has been refreshed. "
                 "Rerun or refresh the page to display "
